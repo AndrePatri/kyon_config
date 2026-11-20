@@ -94,7 +94,7 @@ xbotcore_plugins:
       type: zmq_io
       thread: nrt_main
       params:
-        autostart: true
+        autostart: false
         protocol: tcp
 
 
