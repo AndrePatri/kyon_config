@@ -1,0 +1,109 @@
+# kyon_basic_ros2.yaml with the zmq_io plugin for the CI-MPC: the MPC on the
+# control PC sends joint references over TCP (ports 5557-5559) and reads the
+# robot state at 1 kHz. zmq_io starts with XBot2 but writes nothing until the
+# MPC sends commands, and then only the joints in them; the other joints keep
+# their last references. Run homing_lb and homing_ub before starting the MPC,
+# and keep the other control plugins (ros_control, omnisteering) stopped while
+# it runs.
+# The joint reference filter's fast profile is at 100 Hz: the MPC's feed-forward
+# needs it (40 Hz destabilized aggressive motions in simulation).
+XBotInterface:
+    urdf: /home/user/xbot2_ws/src/kyon_config/scripts/robot_description.py urdf --warn-on-wrong-order
+    srdf: /home/user/xbot2_ws/src/kyon_config/scripts/robot_description.py srdf --warn-on-wrong-order
+
+ModelInterface:
+  model_type: pin
+
+# hal
+xbotcore_device_configs:
+    sim: $(rospack find kyon_config)/hal/kyon_gz.yaml
+    dummy: $(ros2 pkg prefix --share kyon_config)/hal/kyon_dummy.yaml
+    ec_idle: $PWD/hal/ec_all_ros2.yaml
+    ec_pos: $PWD/hal/ec_all_ros2.yaml
+
+
+# threads
+xbotcore_threads:
+    rt_main:  {sched: fifo , prio: 60, period: 0.001, core_id: 3}
+    nrt_main: {sched: other, prio: 0 , period: 0.001}
+    main: {sched: other, prio: 0 , period: 0.001, main: true}
+
+
+# plugins
+xbotcore_plugins:
+
+    stress_removal:
+      thread: nrt_main
+      type: internal_stress_removal_plugin
+      params:
+        contact_links: [contact_1, contact_2, contact_3, contact_4]
+
+    homing_lb:
+      thread: rt_main
+      type: homing
+      params:
+        ctrl_override:  # homing does not affect grippers and upper body
+          dagana_1_clamp_joint: 0
+          dagana_2_clamp_joint: 0
+          shoulder_yaw_1: 0
+          shoulder_pitch_1: 0
+          elbow_pitch_1: 0
+          wrist_pitch_1: 0
+          wrist_yaw_1: 0
+          shoulder_yaw_2: 0
+          shoulder_pitch_2: 0
+          elbow_pitch_2: 0
+          wrist_pitch_2: 0
+          wrist_yaw_2: 0
+
+    homing_ub:
+      thread: rt_main
+      type: homing
+      params:
+        ctrl_override:  # homing does not affect lower body
+          hip_roll_1: 0
+          hip_pitch_1: 0
+          knee_pitch_1: 0
+          hip_roll_2: 0
+          hip_pitch_2: 0
+          knee_pitch_2: 0
+          hip_roll_3: 0
+          hip_pitch_3: 0
+          knee_pitch_3: 0
+          hip_roll_4: 0
+          hip_pitch_4: 0
+          knee_pitch_4: 0
+
+    omnisteering:
+      type: omnisteering_controller_plugin
+      thread: nrt_main
+      params:
+        vel_offset_gain: 1.0
+        wheel_names: [wheel_1, wheel_2, wheel_3, wheel_4]
+        wheel_radius: [0.107, 0.107, 0.107, 0.107]
+
+    ros_io:
+      thread: main
+      type: ros2_io
+      params:
+        ignore_imu: [imu_link]
+
+    ros_control: {thread: nrt_main, type: ros2_control}
+
+    zmq_io:
+      type: zmq_io
+      thread: nrt_main
+      params:
+        autostart: true
+        protocol: tcp
+
+
+# global parameters
+xbotcore_param:
+  /xbot/hal/enable_safety: {value: true, type: bool}
+  /xbot/hal/joint_safety/filter_autostart: {value: true, type: bool}
+  /xbot/hal/joint_safety/filter_cutoff_hz: {value: 100.0, type: double}
+  /xbot/hal/joint_safety/filter_safe_cutoff_hz: {value: 5.0, type: double}
+  /xbot/hal/joint_safety/filter_medium_cutoff_hz: {value: 50.0, type: double}
+  /xbot/hal/joint_safety/filter_fast_cutoff_hz: {value: 100.0, type: double}
+  /xbot/hal/joint_safety/delta_check_dt: 0.12
